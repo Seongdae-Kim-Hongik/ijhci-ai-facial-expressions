@@ -38,6 +38,10 @@ set.seed(42)
 ALPHA          <- 0.05
 BF_THRESHOLD   <- 3
 MCMC_ITER      <- 5000
+
+## Permutations for the Bayesian yield null. At 2,000 the Monte Carlo standard
+## error of a p value near .09 is about .006.
+PERMUTATIONS   <- 2000
 P_ADJUST_METHOD <- "BH"
 
 ## A metric enters the eye-tracking family only if it is observed for at least
@@ -161,31 +165,36 @@ drop_duplicate_columns <- function(df, columns, label = "") {
 }
 
 ## Measures correlating at or above the threshold are alternative summaries of
-## the same response. The first of each block is retained.
+## the same response and are grouped into blocks, of which one representative is
+## kept. Complete-linkage clustering at a height of 1 - threshold is used so
+## that every pair inside a block clears the threshold and the grouping does not
+## depend on the order the columns happen to arrive in.
 collapse_redundant <- function(df, columns, threshold = REDUNDANCY_THRESHOLD,
                                label = "") {
+  if (length(columns) < 2) return(list(keep = columns, blocks = list()))
+
   m <- as.matrix(df[, columns, drop = FALSE])
   storage.mode(m) <- "double"
   cm <- suppressWarnings(abs(stats::cor(m, use = "pairwise.complete.obs")))
+  cm[!is.finite(cm)] <- 0
+
+  clusters <- stats::cutree(
+    stats::hclust(stats::as.dist(1 - cm), method = "complete"),
+    h = 1 - threshold)
 
   keep <- character(0)
   blocks <- list()
-  for (v in columns) {
-    redundant_with <- keep[vapply(keep, function(k) {
-      isTRUE(cm[v, k] >= threshold)
-    }, logical(1))]
-    if (length(redundant_with)) {
-      head_v <- redundant_with[1]
-      blocks[[head_v]] <- c(blocks[[head_v]], v)
-    } else {
-      keep <- c(keep, v)
-    }
+  for (cl in unique(clusters[columns])) {
+    members <- columns[clusters[columns] == cl]
+    keep <- c(keep, members[1])
+    if (length(members) > 1) blocks[[members[1]]] <- members[-1]
   }
+
   for (h in names(blocks)) {
     message(label, h, " represents ", paste(blocks[[h]], collapse = ", "),
             " (|r| >= ", threshold, ")")
   }
-  list(keep = keep, blocks = blocks)
+  list(keep = columns[columns %in% keep], blocks = blocks)
 }
 
 write_table <- function(x, name) {

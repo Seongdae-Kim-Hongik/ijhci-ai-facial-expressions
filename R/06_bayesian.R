@@ -100,33 +100,46 @@ bayes_correlation <- function(x, y, iterations = MCMC_ITER) {
 
 ## Null distribution of the number of pairings reaching the evidence threshold.
 ##
-## Permuting the participant labels of the two subjective ratings within each
-## source x category cell removes any true rating-physiology association while
-## leaving everything else intact: the physiological covariance structure, the
-## reuse of the same participants across all fourteen cells, the missing-data
-## pattern and the sample size of every cell. Simulating independent pairs
-## instead would recover the same expected count -- expectation is linear, so
-## dependence does not bias it -- but it badly understates the spread, and the
-## spread is what decides whether an observed yield is remarkable.
+## One relabelling of participants is drawn and applied to the ratings in every
+## cell, so a participant's whole rating profile moves to another participant's
+## physiological profile. This breaks the link between a person's ratings and
+## their own physiology, which is the null of interest, while preserving the
+## covariance among physiological measures, each participant's rating profile,
+## the dependence between cells that comes from reusing the same people, and the
+## missing-data pattern.
+##
+## Permuting each cell separately would also produce a null, but it would make
+## the cells independent of one another and so understate the spread of the
+## total count. Simulating independent pairs would recover the right expected
+## count -- expectation is linear, so dependence does not bias it -- and
+## understate the spread further still. The spread is what decides whether an
+## observed yield is remarkable.
 null_yield_distribution <- function(master, physiological, subjective,
-                                    n_perm = 500, seed = 42) {
+                                    n_perm = 1000, seed = 42) {
   set.seed(seed)
 
-  cells <- master %>%
-    dplyr::group_by(.data$emotion, .data$source) %>%
-    dplyr::group_split()
+  ids <- unique(master$device_key)
+  ratings <- master %>%
+    dplyr::select("device_key", "emotion", "source", dplyr::all_of(subjective))
+  physio <- master %>%
+    dplyr::select("device_key", "emotion", "source", dplyr::all_of(physiological))
 
   vapply(seq_len(n_perm), function(i) {
+    relabel <- stats::setNames(sample(ids), ids)
+    permuted <- ratings %>%
+      dplyr::mutate(device_key = unname(relabel[.data$device_key])) %>%
+      dplyr::inner_join(physio, by = c("device_key", "emotion", "source"))
+
+    cells <- permuted %>%
+      dplyr::group_by(.data$emotion, .data$source) %>%
+      dplyr::group_split()
+
     total <- 0L
     for (cell in cells) {
-      shuffled <- cell
-      order_i <- sample(nrow(cell))
-      for (sv in subjective) shuffled[[sv]] <- cell[[sv]][order_i]
-
       for (pv in physiological) {
         for (sv in subjective) {
-          x <- shuffled[[pv]]
-          y <- shuffled[[sv]]
+          x <- cell[[pv]]
+          y <- cell[[sv]]
           ok <- is.finite(x) & is.finite(y)
           if (sum(ok) < 6) next
           bf <- BayesFactor::correlationBF(x[ok], y[ok])
@@ -140,7 +153,9 @@ null_yield_distribution <- function(master, physiological, subjective,
   }, integer(1))
 }
 
-run_bayesian <- function(master) {
+run_bayesian <- function(master, seed = 42) {
+  ## Held locally so the posterior draws do not depend on what ran before.
+  set.seed(seed)
   physiological <- c(intersect(FNIRS_ROIS, names(master)),
                      intersect(BAYES_ET_MEASURES, names(master)))
 
@@ -169,7 +184,8 @@ run_bayesian <- function(master) {
 
   ## Because every source x category cell is screened against every
   ## physiological index, some pairings reach the threshold by chance alone.
-  null_counts <- null_yield_distribution(master, physiological, SUBJECTIVE_MEASURES)
+  null_counts <- null_yield_distribution(master, physiological, SUBJECTIVE_MEASURES,
+                                         n_perm = PERMUTATIONS)
 
   benchmark <- tibble::tibble(
     n_pairings        = nrow(res),

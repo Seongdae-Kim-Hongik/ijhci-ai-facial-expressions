@@ -35,8 +35,22 @@ complete_participants <- function(d, id = "participant_key") {
 }
 
 ## Pulls one term out of the stratified summary of an aov fit.
+##
+## Generalized eta squared divides the effect by itself plus every source of
+## variance that was not manipulated. In a design where both factors are
+## manipulated within participant that means the effect plus the residual sums
+## of squares of all strata, including the between-participant stratum. The
+## latter carries no F test, so it has to be collected before the untested rows
+## are dropped; leaving it out inflates the effect size.
 .aov_terms <- function(fit) {
   strata <- summary(fit)
+
+  ss_error_total <- sum(vapply(strata, function(s) {
+    tab <- as.data.frame(s[[1]])
+    r <- tab$`Sum Sq`[trimws(rownames(tab)) == "Residuals"]
+    if (length(r)) sum(r) else 0
+  }, numeric(1)))
+
   purrr::map_dfr(strata, function(s) {
     tab <- as.data.frame(s[[1]])
     tab$term <- trimws(rownames(tab))
@@ -55,14 +69,9 @@ complete_participants <- function(d, id = "participant_key") {
   }) %>%
     dplyr::mutate(
       ss_effect = .data$F * .data$df1 * .data$ms_error,
-      ss_error  = .data$df2 * .data$ms_error,
-      petasq    = (.data$F * .data$df1) / (.data$F * .data$df1 + .data$df2)
-    ) %>%
-    ## In a fully within-participant design every error stratum is a source of
-    ## measurement variability, so generalized eta squared divides the effect by
-    ## the effect plus all of them. It is the effect size that is comparable
-    ## across designs; partial eta squared is retained for continuity.
-    dplyr::mutate(getasq = .data$ss_effect / (.data$ss_effect + sum(unique(.data$ss_error))))
+      petasq    = (.data$F * .data$df1) / (.data$F * .data$df1 + .data$df2),
+      getasq    = .data$ss_effect / (.data$ss_effect + ss_error_total)
+    )
 }
 
 rm_anova_omnibus <- function(data, dv, id = "participant_key") {
