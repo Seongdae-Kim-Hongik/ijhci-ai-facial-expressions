@@ -1,12 +1,9 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite both the software and the article."
-title: "Analysis code for: Evaluating AI-Generated Facial Expressions as Affective Interface Cues"
-abstract: >-
-  R code reproducing the questionnaire, fNIRS, eye-tracking and exploratory
-  Bayesian analyses of a multimodal comparison between selected AI-generated and
-  human facial-expression stimuli across seven intended emotion categories.
+message: "If you use this code, please cite the associated article and this archived release."
+title: "Evaluating AI-Generated Facial Expressions as Affective Interface Cues — Multimodal Analysis Code"
 type: software
 license: MIT
+repository-code: "https://github.com/Seongdae-Kim-Hongik/ijhci-ai-facial-expressions"
 authors:
   - family-names: Joo
     given-names: Hwanwook
@@ -26,3 +23,17 @@ keywords:
   - affective computing
   - fNIRS
   - eye-tracking
+preferred-citation:
+  type: article
+  title: "Evaluating AI-Generated Facial Expressions as Affective Interface Cues: A Multimodal Comparison with Human Expressions"
+  authors:
+    - family-names: Joo
+      given-names: Hwanwook
+    - family-names: Ha
+      given-names: Chunghun
+    - family-names: Kim
+      given-names: Seungbeom
+    - family-names: Kim
+      given-names: Seongdae
+  journal: "International Journal of Human–Computer Interaction"
+  year: 2026

@@ -6,11 +6,12 @@
 
 source("R/00_setup.R")
 source("R/01_load_data.R")
-source("R/02_questionnaire.R")
-source("R/03_fnirs.R")
-source("R/04_eyetracking.R")
-source("R/05_bayesian.R")
-source("R/06_figures.R")
+source("R/02_models.R")
+source("R/03_questionnaire.R")
+source("R/04_fnirs.R")
+source("R/05_eyetracking.R")
+source("R/06_bayesian.R")
+source("R/07_figures.R")
 
 crosswalk     <- load_crosswalk()
 questionnaire <- load_questionnaire(crosswalk)

@@ -14,8 +14,9 @@ exports of the three recording systems.
 R 4.4 or later with the following packages:
 
 ```r
-install.packages(c("readxl", "haven", "dplyr", "tidyr", "stringr",
-                   "purrr", "tibble", "BayesFactor", "ggplot2"))
+install.packages(c("readxl", "haven", "dplyr", "tidyr", "stringr", "purrr",
+                   "tibble", "lme4", "lmerTest", "emmeans", "car",
+                   "BayesFactor", "ggplot2"))
 ```
 
 ## Running the analysis
@@ -36,44 +37,83 @@ any script by setting `IJHCI_QUESTIONNAIRE`, `IJHCI_EYETRACKING`,
 
 | Path | Contents |
 | --- | --- |
-| `R/00_setup.R` | Packages, paths, study constants, shared paired-contrast helpers |
+| `R/00_setup.R` | Packages, paths, study constants, shared contrast helpers |
 | `R/01_load_data.R` | Readers that turn each raw export into a long-format table |
-| `R/02_questionnaire.R` | Intended-label agreement, empathy and perceived discomfort |
-| `R/03_fnirs.R` | HbO contrasts by Brodmann-based region of interest |
-| `R/04_eyetracking.R` | Contrasts across the Tobii Pro Lab metrics |
-| `R/05_bayesian.R` | Exploratory Bayesian correlations across measurement channels |
-| `R/06_figures.R` | Figures 5, 7 and 8 |
+| `R/02_models.R` | Repeated-measures ANOVA, effect sizes, sensitivity checks, post-hoc contrasts |
+| `R/03_questionnaire.R` | Intended-label agreement, empathy and perceived discomfort |
+| `R/04_fnirs.R` | HbO by Brodmann-based region of interest |
+| `R/05_eyetracking.R` | Tobii Pro Lab metrics |
+| `R/06_bayesian.R` | Exploratory Bayesian correlations across measurement channels |
+| `R/07_figures.R` | Figures 5, 7 and 8 |
 | `run_all.R` | Entry point that runs the pipeline end to end |
 
 ## Statistical approach
 
-All source comparisons are **within participant**, so every contrast is a
-paired-samples *t* test of the AI-generated against the human stimulus of the
-same intended emotion category. Participants missing one side of a pair are
-dropped from that contrast only (available-case analysis), which is why the
-degrees of freedom vary between measures.
+### Primary analysis
 
-The Benjamini-Hochberg false discovery rate procedure is applied to a different
-family in each channel:
+The design crosses intended emotion category (7 levels) with stimulus source
+(2 levels), fully within participant. Each hypothesis states that the source
+difference *varies across categories*, which is the Emotion × Source
+interaction, so the primary analysis is a two-way repeated-measures ANOVA
+per dependent measure:
 
-- **Questionnaire** — across the seven emotion categories, separately for the
-  empathy and the perceived-discomfort scale.
-- **fNIRS** — across the eight regions of interest within each emotion category.
-- **Eye-tracking** — across the whole set of metric x category comparisons.
+```r
+aov(DV ~ emotion * source + Error(participant / (emotion * source)))
+```
 
-Both the unadjusted (`p`) and the adjusted (`p_fdr`) values are written to every
-output table so that either can be reported.
+Every effect is tested against its own within-participant error stratum.
+Participants missing any design cell are excluded from that measure, so the
+number of participants is reported per measure. Effect size is partial eta
+squared, computed as `F * df1 / (F * df1 + df2)`.
 
-`Duration_of_interval` and `Start_of_interval` are excluded from the
-eye-tracking measures. They describe the length and the recording-clock position
-of the presentation window rather than any response of the participant, and
-because stimulus order was fixed within a block, `Start_of_interval` separates
-the two sources almost perfectly. Leaving them in adds seven artefactual
-comparisons to the family and distorts the correction.
+### Multiple comparisons
 
-Exploratory Bayesian Pearson correlations use the default Jeffreys-Zellner-Siow
-prior with 5,000 posterior draws, computed separately for each source x category
-cell. BF10 of 3 or greater is treated as substantial evidence.
+The Benjamini-Hochberg false discovery rate is controlled **across the
+dependent measures within a modality, separately for each effect** — one
+adjustment for the emotion effect, one for the source effect, one for the
+interaction. Families are the two rating scales, the eight regions of interest,
+and the eye-tracking battery.
+
+Metrics that are numerically identical to another metric are dropped before the
+correction, since they contribute no independent test; the script reports which
+ones. Eye-tracking metrics also have to be observed on at least 60 per cent of
+trials and to vary.
+
+### Sensitivity and post-hoc analyses
+
+Greenhouse-Geisser corrected p values are reported for the effects involving the
+seven-level emotion factor. Source contrasts within each emotion category are
+estimated post hoc from the corresponding mixed model with `emmeans` and
+Bonferroni adjustment, and are computed only for measures whose source or
+interaction effect survives correction.
+
+Normality is not tested and no nonparametric fallback is used; the
+repeated-measures ANOVA with the Greenhouse-Geisser check is the reported
+analysis.
+
+### Eye-tracking measures
+
+`Duration_of_interval` and `Start_of_interval` are excluded. They describe the
+length and the recording-clock position of the presentation window rather than
+any response of the participant, and because stimulus order was fixed within a
+block, `Start_of_interval` separates the two sources almost perfectly. A
+pre-specified core set of metrics is reported in the main table and the full
+battery as supplementary material, with the correction computed over the full
+battery.
+
+### Exploratory Bayesian correlations
+
+Bayesian Pearson correlations between the subjective ratings and the
+physiological indices use the default Jeffreys-Zellner-Siow prior with 5,000
+posterior draws, computed separately for each source × category cell. The
+posterior median correlation is reported with a 95 per cent credible interval,
+and BF₁₀ of 3 or greater is treated as substantial evidence.
+
+Because every cell is screened against every index, the yield is reported
+against a chance benchmark: the expected number of pairings reaching the
+threshold when all associations are null, obtained by simulating uncorrelated
+data at each observed sample size. Pairings with BF₁₀ below 1/3, which support
+the null, are counted as well. This section is exploratory.
 
 ## Data availability
 

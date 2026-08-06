@@ -60,16 +60,19 @@ build_master <- function(q, fnirs, et) {
   master
 }
 
+## Evidence categories, including the categories favouring the null so that
+## null evidence can be counted rather than silently discarded.
 interpret_bf <- function(bf) {
   dplyr::case_when(
-    bf > 100   ~ "extreme",
-    bf > 30    ~ "very strong",
-    bf > 10    ~ "strong",
-    bf > 3     ~ "moderate",
-    bf > 1     ~ "anecdotal",
-    bf > 1 / 3 ~ "anecdotal (H0)",
+    bf > 100    ~ "decisive",
+    bf > 30     ~ "very strong",
+    bf > 10     ~ "strong",
+    bf > 3      ~ "moderate",
+    bf > 1      ~ "weak",
+    bf > 1 / 3  ~ "weak (H0)",
     bf > 1 / 10 ~ "moderate (H0)",
-    TRUE       ~ "strong (H0)"
+    bf > 1 / 30 ~ "strong (H0)",
+    TRUE        ~ "very strong (H0)"
   )
 }
 
@@ -87,12 +90,27 @@ bayes_correlation <- function(x, y, iterations = MCMC_ITER) {
 
   tibble::tibble(
     n        = sum(ok),
-    r_mean   = mean(rho),
     r_median = stats::median(rho),
+    r_mean   = mean(rho),
     ci_lower = unname(stats::quantile(rho, 0.025)),
     ci_upper = unname(stats::quantile(rho, 0.975)),
     bf10     = as.numeric(BayesFactor::extractBF(bf)$bf)
   )
+}
+
+## Expected number of pairings reaching the evidence threshold when every
+## association is truly null, obtained by simulation at each observed n.
+expected_yield_under_null <- function(sample_sizes, n_sim = 2000) {
+  rates <- vapply(sort(unique(sample_sizes)), function(n) {
+    hits <- vapply(seq_len(n_sim), function(i) {
+      bf <- BayesFactor::correlationBF(stats::rnorm(n), stats::rnorm(n))
+      as.numeric(BayesFactor::extractBF(bf)$bf) >= BF_THRESHOLD
+    }, logical(1))
+    mean(hits)
+  }, numeric(1))
+
+  names(rates) <- as.character(sort(unique(sample_sizes)))
+  sum(rates[as.character(sample_sizes)])
 }
 
 run_bayesian <- function(master) {
@@ -120,12 +138,32 @@ run_bayesian <- function(master) {
     dplyr::arrange(dplyr::desc(.data$bf10))
 
   substantial <- dplyr::filter(res, .data$bf10 >= BF_THRESHOLD)
+  null_support <- dplyr::filter(res, .data$bf10 < 1 / BF_THRESHOLD)
+
+  ## Because every source x category cell is screened against every
+  ## physiological index, some pairings are expected to exceed the threshold by
+  ## chance alone. The expected number is obtained by simulating uncorrelated
+  ## data at each observed sample size, which is the only way to get the rate
+  ## right: it depends on n and on the prior, and is nothing like 1 / BF.
+  expected <- expected_yield_under_null(res$n)
+
+  benchmark <- tibble::tibble(
+    n_pairings           = nrow(res),
+    threshold            = BF_THRESHOLD,
+    n_substantial        = nrow(substantial),
+    n_expected_by_chance = expected,
+    ratio_observed_to_expected = nrow(substantial) / expected,
+    n_null_support       = nrow(null_support)
+  )
 
   write_table(res, "bayesian_all_pairings")
   write_table(substantial, "table4_bayesian_substantial")
+  write_table(benchmark, "table4b_bayesian_yield_benchmark")
 
-  message(sprintf("Bayesian correlations: %d pairings, %d with BF10 >= %g.",
-                  nrow(res), nrow(substantial), BF_THRESHOLD))
+  message(sprintf("Bayesian correlations: %d pairings; %d with BF10 >= %g (about %.1f expected if all associations were null, ratio %.1f); %d support the null (BF10 < 1/%g).",
+                  nrow(res), nrow(substantial), BF_THRESHOLD,
+                  expected, nrow(substantial) / expected,
+                  nrow(null_support), BF_THRESHOLD))
 
-  list(all = res, substantial = substantial)
+  list(all = res, substantial = substantial, benchmark = benchmark)
 }

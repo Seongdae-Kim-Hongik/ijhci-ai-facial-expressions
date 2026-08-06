@@ -1,0 +1,25 @@
+{
+  "title": "Evaluating AI-Generated Facial Expressions as Affective Interface Cues: Multimodal Analysis Code (Questionnaire, fNIRS, Eye-Tracking, Bayesian)",
+  "description": "Analysis code (R) for a within-participant multimodal comparison of selected AI-generated and human facial-expression stimuli across seven intended emotion categories. Questionnaire ratings, prefrontal oxyhemoglobin responses recorded with functional near-infrared spectroscopy, and eye-tracking metrics are each analysed with a two-way Emotion x Source repeated-measures ANOVA with within-participant error strata, partial eta squared, Benjamini-Hochberg false discovery rate control across the dependent measures within each effect, Greenhouse-Geisser sensitivity checks, and Bonferroni post-hoc source contrasts within each emotion category. Exploratory Bayesian correlations between subjective ratings and physiological indices are reported with a simulated chance-yield benchmark. No participant data are included.",
+  "upload_type": "software",
+  "access_right": "open",
+  "license": "MIT",
+  "keywords": [
+    "AI-generated faces",
+    "facial expression recognition",
+    "affective computing",
+    "human-computer interaction",
+    "HCI",
+    "fNIRS",
+    "eye-tracking",
+    "pupillometry",
+    "repeated-measures ANOVA",
+    "Bayesian analysis"
+  ],
+  "creators": [
+    { "name": "Joo, Hwanwook", "affiliation": "Hongik University" },
+    { "name": "Ha, Chunghun", "affiliation": "Hongik University" },
+    { "name": "Kim, Seungbeom", "affiliation": "Hongik University" },
+    { "name": "Kim, Seongdae", "affiliation": "Hongik University" }
+  ]
+}

@@ -9,6 +9,10 @@ suppressPackageStartupMessages({
   library(stringr)
   library(purrr)
   library(tibble)
+  library(lme4)
+  library(lmerTest)
+  library(emmeans)
+  library(car)
   library(BayesFactor)
   library(ggplot2)
 })
@@ -29,12 +33,24 @@ for (d in c(OUTPUT_DIR, TABLE_DIR, FIGURE_DIR)) {
   if (!dir.exists(d)) dir.create(d, recursive = TRUE)
 }
 
-set.seed(20240917)
+set.seed(42)
 
 ALPHA          <- 0.05
 BF_THRESHOLD   <- 3
 MCMC_ITER      <- 5000
 P_ADJUST_METHOD <- "BH"
+
+## A metric enters the eye-tracking family only if it is observed for at least
+## this share of trials and actually varies.
+ET_MIN_COVERAGE <- 0.6
+
+## Pre-specified core eye-tracking metrics for the main table; the full battery
+## is reported as supplementary material.
+ET_CORE_METRICS <- c("Average_pupil_diameter", "Average_wholefixation_pupil_dia",
+                     "Average_eye_openness", "Total_duration_of_fixations",
+                     "Average_duration_of_fixations", "Number_of_fixations",
+                     "Time_to_first_fixation", "Number_of_saccades_in_AOI",
+                     "Number_of_blinks")
 
 EMOTIONS <- c("anger", "contempt", "disgust", "fear",
               "happiness", "sadness", "surprise")
