@@ -44,6 +44,10 @@ P_ADJUST_METHOD <- "BH"
 ## this share of trials and actually varies.
 ET_MIN_COVERAGE <- 0.6
 
+## Measures correlating at or above this value are alternative summaries of the
+## same underlying response and are collapsed to one representative.
+REDUNDANCY_THRESHOLD <- 0.95
+
 ## Pre-specified core eye-tracking metrics for the main table; the full battery
 ## is reported as supplementary material.
 ET_CORE_METRICS <- c("Average_pupil_diameter", "Average_wholefixation_pupil_dia",
@@ -58,8 +62,14 @@ EMOTIONS <- c("anger", "contempt", "disgust", "fear",
 SOURCES <- c("AI", "Human")
 
 ## Brodmann-based regions of interest exported by the NIRSIT Analysis Tool.
+## "Left OFC" and "Right OFC" are bit-identical in every export, so the device
+## reports a single combined orbitofrontal value under two column names. Only
+## one is analysed; treating them as two regions would double-count one
+## measurement in the correction family and in the cross-measure screen.
 FNIRS_ROIS <- c("Left DLPFC", "Right DLPFC", "Left FPC", "Right FPC",
-                "Left VLPFC", "Right VLPFC", "Left OFC", "Right OFC")
+                "Left VLPFC", "Right VLPFC", "OFC")
+
+FNIRS_DUPLICATE_ROIS <- c("Left OFC", "Right OFC")
 
 ## Forced-choice response options presented after every trial (Q1).
 ## Option letters follow the order used in the printed questionnaire.
@@ -128,6 +138,54 @@ contrast_grid <- function(df, measures, id = "participant_key") {
     if (is.null(res)) return(NULL)
     dplyr::bind_cols(tibble::tibble(emotion = emotion, measure = measure), res)
   })
+}
+
+## Columns that are numerically identical to an earlier column contribute no
+## independent test and are dropped before any correction is applied.
+drop_duplicate_columns <- function(df, columns, label = "") {
+  keep <- character(0)
+  dropped <- character(0)
+  for (m in columns) {
+    if (any(vapply(keep, function(k) identical(df[[m]], df[[k]]), logical(1)))) {
+      dropped <- c(dropped, m)
+    } else {
+      keep <- c(keep, m)
+    }
+  }
+  if (length(dropped)) {
+    message(label, "dropped ", length(dropped),
+            " measure(s) identical to another measure: ",
+            paste(dropped, collapse = ", "))
+  }
+  keep
+}
+
+## Measures correlating at or above the threshold are alternative summaries of
+## the same response. The first of each block is retained.
+collapse_redundant <- function(df, columns, threshold = REDUNDANCY_THRESHOLD,
+                               label = "") {
+  m <- as.matrix(df[, columns, drop = FALSE])
+  storage.mode(m) <- "double"
+  cm <- suppressWarnings(abs(stats::cor(m, use = "pairwise.complete.obs")))
+
+  keep <- character(0)
+  blocks <- list()
+  for (v in columns) {
+    redundant_with <- keep[vapply(keep, function(k) {
+      isTRUE(cm[v, k] >= threshold)
+    }, logical(1))]
+    if (length(redundant_with)) {
+      head_v <- redundant_with[1]
+      blocks[[head_v]] <- c(blocks[[head_v]], v)
+    } else {
+      keep <- c(keep, v)
+    }
+  }
+  for (h in names(blocks)) {
+    message(label, h, " represents ", paste(blocks[[h]], collapse = ", "),
+            " (|r| >= ", threshold, ")")
+  }
+  list(keep = keep, blocks = blocks)
 }
 
 write_table <- function(x, name) {

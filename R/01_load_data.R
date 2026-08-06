@@ -76,7 +76,18 @@ load_fnirs <- function(dir = FNIRS_DIR, pattern = "^fnirs_.*\\.xlsx$") {
   }
 
   purrr::map_dfr(files, function(f) {
-    readxl::read_excel(f) %>%
+    raw <- readxl::read_excel(f)
+
+    ## The export writes one combined orbitofrontal value into two identical
+    ## columns; it is carried forward once, under a side-neutral name.
+    present <- intersect(FNIRS_DUPLICATE_ROIS, names(raw))
+    if (length(present) == 2 && !identical(raw[[present[1]]], raw[[present[2]]])) {
+      warning("Left and Right OFC differ in '", basename(f),
+              "'; the combined-column assumption no longer holds.", call. = FALSE)
+    }
+    if (length(present)) raw[["OFC"]] <- raw[[present[1]]]
+
+    raw %>%
       dplyr::rename(device_id = "Subject Name") %>%
       dplyr::mutate(
         source  = ifelse(stringr::str_detect(.data$Contrast, "^AI"), "AI", "Human"),

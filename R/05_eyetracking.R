@@ -17,31 +17,21 @@ valid_et_metrics <- function(df, candidates) {
   candidates[keep]
 }
 
-## Metrics that are numerically identical to an earlier metric contribute no
-## independent test and are dropped before the correction is applied.
-drop_duplicate_metrics <- function(df, metrics) {
-  signatures <- character(0)
-  keep <- character(0)
-  for (m in metrics) {
-    sig <- paste(utils::capture.output(print(df[[m]])), collapse = "")
-    if (!sig %in% signatures) {
-      signatures <- c(signatures, sig)
-      keep <- c(keep, m)
-    }
-  }
-  if (length(keep) < length(metrics)) {
-    message("Eye-tracking: dropped ", length(metrics) - length(keep),
-            " metric(s) numerically identical to another metric: ",
-            paste(setdiff(metrics, keep), collapse = ", "))
-  }
-  keep
-}
-
 run_eyetracking <- function(et) {
   df <- dplyr::rename(et, participant_key = "device_key")
   candidates <- setdiff(names(df), c("participant_key", "emotion", "source"))
 
-  metrics <- drop_duplicate_metrics(df, valid_et_metrics(df, candidates))
+  ## Tobii writes several aliases of the same response (the Visit and Glance
+  ## families duplicate the fixation family when a single AOI is defined, and
+  ## the fixation-linked pupil and eye-openness summaries track their trial-level
+  ## counterparts at r > .99). Keeping them would not break the correction, which
+  ## stays valid under positive dependence, but it would present one finding as
+  ## several. One representative per block enters the family; the mapping is
+  ## written out so the collapsed metrics remain visible.
+  usable <- drop_duplicate_columns(df, valid_et_metrics(df, candidates),
+                                   "Eye-tracking: ")
+  redundancy <- collapse_redundant(df, usable, label = "Eye-tracking: ")
+  metrics <- redundancy$keep
 
   omnibus <- omnibus_family(df, metrics)
   warranted <- measures_warranting_posthoc(omnibus)
@@ -59,6 +49,13 @@ run_eyetracking <- function(et) {
   write_table(descriptives, "table3c_eyetracking_descriptives")
   write_table(gg, "tableS2_eyetracking_greenhouse_geisser")
 
+  represented <- tibble::tibble(
+    representative = rep(names(redundancy$blocks),
+                         lengths(redundancy$blocks)),
+    collapsed_into_it = unlist(redundancy$blocks, use.names = FALSE)
+  )
+  write_table(represented, "tableS6_eyetracking_redundant_metrics")
+
   message(sprintf("Eye-tracking: %d metrics in the family; source effect survives FDR in %d, interaction in %d; %d carried to post hoc.",
                   nrow(omnibus),
                   sum(omnibus$pFDR_source < ALPHA, na.rm = TRUE),
@@ -66,5 +63,5 @@ run_eyetracking <- function(et) {
                   length(warranted)))
 
   list(omnibus = omnibus, core = core, posthoc = posthoc,
-       descriptives = descriptives, gg = gg)
+       descriptives = descriptives, gg = gg, redundancy = redundancy)
 }

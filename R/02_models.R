@@ -11,13 +11,26 @@
 ## Participants missing any design cell are dropped from that measure, so the
 ## number of participants is reported per measure.
 
-## Participants with a complete set of emotion x source observations.
+## Participants contributing exactly one observation to every emotion x source
+## cell. Counting rows alone would let a participant with a duplicated cell and
+## a missing cell pass, so the cells themselves are checked.
 complete_participants <- function(d, id = "participant_key") {
   required <- length(EMOTIONS) * length(SOURCES)
-  d %>%
+
+  observed <- d %>%
     dplyr::filter(is.finite(.data$DV)) %>%
-    dplyr::count(.data[[id]]) %>%
-    dplyr::filter(.data$n == required) %>%
+    dplyr::count(.data[[id]], .data$emotion, .data$source, name = "per_cell")
+
+  if (any(observed$per_cell > 1)) {
+    warning("More than one observation in a design cell for: ",
+            paste(unique(observed[[1]][observed$per_cell > 1]), collapse = ", "),
+            call. = FALSE)
+  }
+
+  observed %>%
+    dplyr::filter(.data$per_cell == 1) %>%
+    dplyr::count(.data[[id]], name = "cells") %>%
+    dplyr::filter(.data$cells == required) %>%
     dplyr::pull(1)
 }
 
@@ -28,17 +41,28 @@ complete_participants <- function(d, id = "participant_key") {
     tab <- as.data.frame(s[[1]])
     tab$term <- trimws(rownames(tab))
     residual_df <- tab$Df[tab$term == "Residuals"]
+    residual_ms <- tab$`Mean Sq`[tab$term == "Residuals"]
     tab %>%
       dplyr::filter(.data$term != "Residuals", !is.na(.data$`Pr(>F)`)) %>%
       dplyr::transmute(
         term = .data$term,
         df1  = .data$Df,
         df2  = if (length(residual_df)) residual_df else NA_real_,
+        ms_error = if (length(residual_ms)) residual_ms else NA_real_,
         F    = .data$`F value`,
         p    = .data$`Pr(>F)`
       )
   }) %>%
-    dplyr::mutate(petasq = (.data$F * .data$df1) / (.data$F * .data$df1 + .data$df2))
+    dplyr::mutate(
+      ss_effect = .data$F * .data$df1 * .data$ms_error,
+      ss_error  = .data$df2 * .data$ms_error,
+      petasq    = (.data$F * .data$df1) / (.data$F * .data$df1 + .data$df2)
+    ) %>%
+    ## In a fully within-participant design every error stratum is a source of
+    ## measurement variability, so generalized eta squared divides the effect by
+    ## the effect plus all of them. It is the effect size that is comparable
+    ## across designs; partial eta squared is retained for continuity.
+    dplyr::mutate(getasq = .data$ss_effect / (.data$ss_effect + sum(unique(.data$ss_error))))
 }
 
 rm_anova_omnibus <- function(data, dv, id = "participant_key") {
@@ -85,16 +109,19 @@ omnibus_family <- function(df, measures, id = "participant_key") {
       F_emotion      = .pick(tt, "emotion", "F"),
       p_emotion      = .pick(tt, "emotion", "p"),
       petasq_emotion = .pick(tt, "emotion", "petasq"),
+      getasq_emotion = .pick(tt, "emotion", "getasq"),
       df1_source     = .pick(tt, "source", "df1"),
       df2_source     = .pick(tt, "source", "df2"),
       F_source       = .pick(tt, "source", "F"),
       p_source       = .pick(tt, "source", "p"),
       petasq_source  = .pick(tt, "source", "petasq"),
+      getasq_source  = .pick(tt, "source", "getasq"),
       df1_interaction = .pick(tt, "emotion:source", "df1"),
       df2_interaction = .pick(tt, "emotion:source", "df2"),
       F_interaction  = .pick(tt, "emotion:source", "F"),
       p_interaction  = .pick(tt, "emotion:source", "p"),
-      petasq_interaction = .pick(tt, "emotion:source", "petasq")
+      petasq_interaction = .pick(tt, "emotion:source", "petasq"),
+      getasq_interaction = .pick(tt, "emotion:source", "getasq")
     )
   })
 
@@ -127,7 +154,9 @@ gg_sensitivity <- function(df, measures, id = "participant_key") {
       dplyr::arrange(.data$.id)
 
     y <- as.matrix(dplyr::select(wide, -".id"))
-    if (anyNA(y) || nrow(y) <= ncol(y)) return(NULL)
+    ## Epsilon is estimated on the covariance of the effect contrasts, so it
+    ## needs n - 1 to exceed the effect degrees of freedom, not the cell count.
+    if (anyNA(y) || nrow(y) < 3) return(NULL)
 
     idata <- tibble::tibble(cell = colnames(y)) %>%
       tidyr::separate("cell", into = c("emotion", "source"), sep = "_") %>%
@@ -152,29 +181,46 @@ gg_sensitivity <- function(df, measures, id = "participant_key") {
   })
 }
 
-## Source contrast within each emotion category. Bonferroni is used for the
-## post-hoc family, as in the laboratory's other multimodal analyses.
+## Source contrast within each emotion category, restricted to the same
+## complete-case sample as the omnibus model.
+##
+## These are paired t tests rather than contrasts from a random-intercept mixed
+## model. A random intercept alone imposes compound symmetry on all fourteen
+## cells, which pools one error term across categories and counts the residual
+## degrees of freedom as though the observations were independent; with twenty
+## participants that inflates df from 19 to 247 and returns p values several
+## orders of magnitude too small. It would also contradict the sphericity
+## correction reported for the omnibus model. The paired test uses exactly the
+## error term the omnibus interaction stratum is built from. A richer random
+## structure is not an option here: with one observation per cell, a model with
+## random slopes for emotion and source is saturated and unidentifiable.
+##
+## Bonferroni is applied across the seven emotion categories. Requesting it from
+## emmeans with `~ source | emotion` would silently do nothing, because each
+## by-group holds a single contrast and the adjustment is applied within groups.
 posthoc_source_by_emotion <- function(df, measures, id = "participant_key") {
   purrr::map_dfr(measures, function(m) {
     d <- df
     d$DV <- suppressWarnings(as.numeric(d[[m]]))
-    d$.id <- factor(d[[id]])
-    d <- dplyr::filter(d, is.finite(.data$DV))
-    if (dplyr::n_distinct(d$.id) < 3) return(NULL)
+    d$.id <- as.character(d[[id]])
 
-    model <- suppressMessages(lmerTest::lmer(DV ~ emotion * source + (1 | .id), data = d))
-    emm <- emmeans::emmeans(model, ~ source | emotion)
+    keep <- complete_participants(d, ".id")
+    d <- dplyr::filter(d, .data$.id %in% keep)
+    if (length(keep) < 3) return(NULL)
 
-    as.data.frame(emmeans::contrast(emm, method = "pairwise", adjust = "bonferroni")) %>%
-      dplyr::transmute(
+    res <- contrast_grid(d, measures = "DV", id = ".id")
+    if (nrow(res) == 0) return(NULL)
+
+    res %>%
+      dplyr::mutate(
         measure  = m,
-        emotion  = .data$emotion,
-        contrast = .data$contrast,
-        estimate = .data$estimate,
-        se       = .data$SE,
-        t        = .data$t.ratio,
-        p_bonf   = .data$p.value
-      )
+        contrast = "AI - Human",
+        p_bonf   = pmin(1, .data$p * length(EMOTIONS))
+      ) %>%
+      dplyr::select("measure", "emotion", "contrast", "n",
+                    "ai_mean", "ai_sd", "human_mean", "human_sd",
+                    "difference", "ci_lower", "ci_upper",
+                    "t", "df", "p", "p_bonf")
   })
 }
 

@@ -64,10 +64,10 @@ build_master <- function(q, fnirs, et) {
 ## null evidence can be counted rather than silently discarded.
 interpret_bf <- function(bf) {
   dplyr::case_when(
-    bf > 100    ~ "decisive",
-    bf > 30     ~ "very strong",
-    bf > 10     ~ "strong",
-    bf > 3      ~ "moderate",
+    bf >= 100   ~ "decisive",
+    bf >= 30    ~ "very strong",
+    bf >= 10    ~ "strong",
+    bf >= BF_THRESHOLD ~ "moderate",
     bf > 1      ~ "weak",
     bf > 1 / 3  ~ "weak (H0)",
     bf > 1 / 10 ~ "moderate (H0)",
@@ -98,19 +98,46 @@ bayes_correlation <- function(x, y, iterations = MCMC_ITER) {
   )
 }
 
-## Expected number of pairings reaching the evidence threshold when every
-## association is truly null, obtained by simulation at each observed n.
-expected_yield_under_null <- function(sample_sizes, n_sim = 2000) {
-  rates <- vapply(sort(unique(sample_sizes)), function(n) {
-    hits <- vapply(seq_len(n_sim), function(i) {
-      bf <- BayesFactor::correlationBF(stats::rnorm(n), stats::rnorm(n))
-      as.numeric(BayesFactor::extractBF(bf)$bf) >= BF_THRESHOLD
-    }, logical(1))
-    mean(hits)
-  }, numeric(1))
+## Null distribution of the number of pairings reaching the evidence threshold.
+##
+## Permuting the participant labels of the two subjective ratings within each
+## source x category cell removes any true rating-physiology association while
+## leaving everything else intact: the physiological covariance structure, the
+## reuse of the same participants across all fourteen cells, the missing-data
+## pattern and the sample size of every cell. Simulating independent pairs
+## instead would recover the same expected count -- expectation is linear, so
+## dependence does not bias it -- but it badly understates the spread, and the
+## spread is what decides whether an observed yield is remarkable.
+null_yield_distribution <- function(master, physiological, subjective,
+                                    n_perm = 500, seed = 42) {
+  set.seed(seed)
 
-  names(rates) <- as.character(sort(unique(sample_sizes)))
-  sum(rates[as.character(sample_sizes)])
+  cells <- master %>%
+    dplyr::group_by(.data$emotion, .data$source) %>%
+    dplyr::group_split()
+
+  vapply(seq_len(n_perm), function(i) {
+    total <- 0L
+    for (cell in cells) {
+      shuffled <- cell
+      order_i <- sample(nrow(cell))
+      for (sv in subjective) shuffled[[sv]] <- cell[[sv]][order_i]
+
+      for (pv in physiological) {
+        for (sv in subjective) {
+          x <- shuffled[[pv]]
+          y <- shuffled[[sv]]
+          ok <- is.finite(x) & is.finite(y)
+          if (sum(ok) < 6) next
+          bf <- BayesFactor::correlationBF(x[ok], y[ok])
+          if (as.numeric(BayesFactor::extractBF(bf)$bf) >= BF_THRESHOLD) {
+            total <- total + 1L
+          }
+        }
+      }
+    }
+    total
+  }, integer(1))
 }
 
 run_bayesian <- function(master) {
@@ -141,29 +168,38 @@ run_bayesian <- function(master) {
   null_support <- dplyr::filter(res, .data$bf10 < 1 / BF_THRESHOLD)
 
   ## Because every source x category cell is screened against every
-  ## physiological index, some pairings are expected to exceed the threshold by
-  ## chance alone. The expected number is obtained by simulating uncorrelated
-  ## data at each observed sample size, which is the only way to get the rate
-  ## right: it depends on n and on the prior, and is nothing like 1 / BF.
-  expected <- expected_yield_under_null(res$n)
+  ## physiological index, some pairings reach the threshold by chance alone.
+  null_counts <- null_yield_distribution(master, physiological, SUBJECTIVE_MEASURES)
 
   benchmark <- tibble::tibble(
-    n_pairings           = nrow(res),
-    threshold            = BF_THRESHOLD,
-    n_substantial        = nrow(substantial),
-    n_expected_by_chance = expected,
-    ratio_observed_to_expected = nrow(substantial) / expected,
-    n_null_support       = nrow(null_support)
+    n_pairings        = nrow(res),
+    threshold         = BF_THRESHOLD,
+    n_substantial     = nrow(substantial),
+    null_mean         = mean(null_counts),
+    null_sd           = stats::sd(null_counts),
+    null_lower_95     = unname(stats::quantile(null_counts, 0.025)),
+    null_upper_95     = unname(stats::quantile(null_counts, 0.975)),
+    p_yield           = mean(null_counts >= nrow(substantial)),
+    ## The smallest attainable BF10 under this prior is a function of the cell
+    ## size. Where it exceeds 1/threshold, no pairing in that cell can express
+    ## evidence for the null however uncorrelated the data are.
+    min_bf10_observed = min(res$bf10),
+    null_evidence_attainable = min(res$bf10) < 1 / BF_THRESHOLD,
+    n_null_support    = nrow(null_support)
   )
 
   write_table(res, "bayesian_all_pairings")
   write_table(substantial, "table4_bayesian_substantial")
   write_table(benchmark, "table4b_bayesian_yield_benchmark")
 
-  message(sprintf("Bayesian correlations: %d pairings; %d with BF10 >= %g (about %.1f expected if all associations were null, ratio %.1f); %d support the null (BF10 < 1/%g).",
+  message(sprintf("Bayesian correlations: %d pairings; %d with BF10 >= %g. Permutation null: mean %.1f, 95%% interval [%g, %g], p = %.3f.",
                   nrow(res), nrow(substantial), BF_THRESHOLD,
-                  expected, nrow(substantial) / expected,
-                  nrow(null_support), BF_THRESHOLD))
+                  benchmark$null_mean, benchmark$null_lower_95,
+                  benchmark$null_upper_95, benchmark$p_yield))
+  if (!benchmark$null_evidence_attainable) {
+    message(sprintf("Smallest attainable BF10 at these cell sizes is %.3f, so evidence for the null (BF10 < 1/%g) cannot arise and is not reported.",
+                    benchmark$min_bf10_observed, BF_THRESHOLD))
+  }
 
   list(all = res, substantial = substantial, benchmark = benchmark)
 }

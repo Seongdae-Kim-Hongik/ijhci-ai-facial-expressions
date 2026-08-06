@@ -63,16 +63,25 @@ aov(DV ~ emotion * source + Error(participant / (emotion * source)))
 
 Every effect is tested against its own within-participant error stratum.
 Participants missing any design cell are excluded from that measure, so the
-number of participants is reported per measure. Effect size is partial eta
-squared, computed as `F * df1 / (F * df1 + df2)`.
+number of participants is reported per measure. Two effect sizes accompany each
+effect: partial eta squared, `F * df1 / (F * df1 + df2)`, and generalized eta
+squared, which divides the effect sum of squares by itself plus every error
+stratum. Generalized eta squared is the comparable one in a fully
+within-participant design; partial eta squared is markedly upward biased at
+these sample sizes and is reported only for continuity.
+
+For fNIRS, where the complete-case rule is costly, the omnibus result is
+repeated on all available observations with a mixed model whose random terms
+mirror the ANOVA error strata (`tableS5`), so a null result can be checked
+against the missing-data rule.
 
 ### Multiple comparisons
 
 The Benjamini-Hochberg false discovery rate is controlled **across the
 dependent measures within a modality, separately for each effect** — one
 adjustment for the emotion effect, one for the source effect, one for the
-interaction. Families are the two rating scales, the eight regions of interest,
-and the eye-tracking battery.
+interaction. Families are the two rating scales, the seven regions of interest, and the
+eye-tracking battery.
 
 Metrics that are numerically identical to another metric are dropped before the
 correction, since they contribute no independent test; the script reports which
@@ -82,10 +91,23 @@ trials and to vary.
 ### Sensitivity and post-hoc analyses
 
 Greenhouse-Geisser corrected p values are reported for the effects involving the
-seven-level emotion factor. Source contrasts within each emotion category are
-estimated post hoc from the corresponding mixed model with `emmeans` and
-Bonferroni adjustment, and are computed only for measures whose source or
-interaction effect survives correction.
+seven-level emotion factor.
+
+Source contrasts within each emotion category are paired t tests on the same
+complete-case sample as the omnibus model, Bonferroni-corrected across the seven
+categories, and computed only for measures whose source or interaction effect
+survives correction. They are deliberately not contrasts from a random-intercept
+mixed model: a random intercept alone imposes compound symmetry across all
+fourteen cells, pools a single error term across categories and counts residual
+degrees of freedom as though the observations were independent, which at twenty
+participants inflates df from 19 to 247. It would also contradict the sphericity
+correction reported for the omnibus model. A richer random structure is not
+available, because with one observation per cell a model with random slopes for
+emotion and source is saturated.
+
+Note that requesting Bonferroni from `emmeans` with `~ source | emotion` would
+silently do nothing: each by-group holds one contrast and the adjustment is
+applied within groups.
 
 Normality is not tested and no nonparametric fallback is used; the
 repeated-measures ANOVA with the Greenhouse-Geisser check is the reported
@@ -110,10 +132,29 @@ posterior median correlation is reported with a 95 per cent credible interval,
 and BF₁₀ of 3 or greater is treated as substantial evidence.
 
 Because every cell is screened against every index, the yield is reported
-against a chance benchmark: the expected number of pairings reaching the
-threshold when all associations are null, obtained by simulating uncorrelated
-data at each observed sample size. Pairings with BF₁₀ below 1/3, which support
-the null, are counted as well. This section is exploratory.
+against a null distribution obtained by permuting the participant labels of the
+two ratings within each cell. This removes any true rating-physiology
+association while preserving the physiological covariance structure, the reuse
+of the same participants across cells, the missing-data pattern and every cell
+size. Simulating independent pairs would recover the same expected count --
+expectation is linear, so dependence does not bias it -- but it understates the
+spread, and the spread is what decides whether a yield is remarkable.
+
+The smallest BF₁₀ attainable under this prior is a function of cell size; at
+these sample sizes it stays above 1/3, so evidence *for* the null cannot arise
+and is not interpreted. This section is exploratory.
+
+### Measures that are not independent
+
+`Left OFC` and `Right OFC` are bit-identical in every fNIRS export, so the
+device reports one combined orbitofrontal value under two names; it is analysed
+once. Among the eye-tracking metrics, the Visit and Glance families duplicate
+the fixation family when a single AOI is defined, and the fixation-linked pupil
+and eye-openness summaries track their trial-level counterparts at r > .99. One
+representative per correlated block enters the family and the mapping is written
+to `tableS6`. This does not affect error control -- Benjamini-Hochberg remains
+valid under positive dependence, and redundancy makes it conservative rather
+than liberal -- but it prevents one finding from being presented as several.
 
 ## Data availability
 
