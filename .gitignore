@@ -1,0 +1,10 @@
+data/*
+!data/README.md
+!data/participant_crosswalk_TEMPLATE.csv
+
+outputs/
+.Rhistory
+.RData
+.Rproj.user/
+.DS_Store
+Rplots.pdf
