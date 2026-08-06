@@ -30,9 +30,9 @@ eyetracking_results   <- run_eyetracking(eyetracking)
 master           <- build_master(questionnaire, fnirs, eyetracking)
 bayesian_results <- run_bayesian(master)
 
-invisible(figure_questionnaire(questionnaire, questionnaire_results$recognition))
-invisible(figure_pupil(eyetracking))
-invisible(figure_associations(master, bayesian_results$substantial))
+invisible(figure_questionnaire(questionnaire, questionnaire_results$recognition,
+                               questionnaire_results$posthoc))
+invisible(figure_pupil(eyetracking, eyetracking_results$posthoc))
 
 writeLines(utils::capture.output(utils::sessionInfo()),
            file.path(OUTPUT_DIR, "sessionInfo.txt"))
