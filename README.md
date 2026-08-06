@@ -44,7 +44,9 @@ any script by setting `IJHCI_QUESTIONNAIRE`, `IJHCI_EYETRACKING`,
 | `R/04_fnirs.R` | HbO by Brodmann-based region of interest |
 | `R/05_eyetracking.R` | Tobii Pro Lab metrics |
 | `R/06_bayesian.R` | Exploratory Bayesian correlations across measurement channels |
-| `R/07_figures.R` | Figures 5, 7 and 8 |
+| `R/07_figures.R` | Figures 5 and 6 |
+| `R/08_stimulus_confound.R` | Whether image luminance explains the pupil result |
+| `python/08_stimulus_properties.py` | Low-level properties of the stimulus images |
 | `run_all.R` | Entry point that runs the pipeline end to end |
 
 ## Statistical approach
@@ -155,6 +157,21 @@ representative per correlated block enters the family and the mapping is written
 to `tableS6`. This does not affect error control -- Benjamini-Hochberg remains
 valid under positive dependence, and redundancy makes it conservative rather
 than liberal -- but it prevents one finding from being presented as several.
+
+### The stimulus confound
+
+Pupil diameter follows display luminance through the pupillary light reflex.
+With one exemplar per cell, a luminance difference between the two images of a
+category is confounded with the source manipulation, and a luminance difference
+that varies across categories reproduces an Emotion × Source interaction with no
+affective process involved. `python/08_stimulus_properties.py` measures the
+images and `R/08_stimulus_confound.R` tests whether the pupil differences follow
+them. Run the Python step first; it writes the properties table the R step
+reads.
+
+```bash
+python3 python/08_stimulus_properties.py <stimulus_dir> outputs/tables/tableS7_stimulus_properties.csv
+```
 
 ## Data availability
 

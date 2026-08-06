@@ -12,6 +12,7 @@ source("R/04_fnirs.R")
 source("R/05_eyetracking.R")
 source("R/06_bayesian.R")
 source("R/07_figures.R")
+source("R/08_stimulus_confound.R")
 
 crosswalk     <- load_crosswalk()
 questionnaire <- load_questionnaire(crosswalk)
@@ -26,6 +27,8 @@ message(sprintf("Questionnaire: %d participants. fNIRS: %d participants. Eye-tra
 questionnaire_results <- run_questionnaire(questionnaire)
 fnirs_results         <- run_fnirs(fnirs)
 eyetracking_results   <- run_eyetracking(eyetracking)
+
+stimulus_results <- run_stimulus_confound(eyetracking_results$posthoc)
 
 master           <- build_master(questionnaire, fnirs, eyetracking)
 bayesian_results <- run_bayesian(master)
